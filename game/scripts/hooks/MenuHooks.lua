@@ -1,0 +1,129 @@
+--
+-- Copyright (c) Uladzislau Nikalayevich <thenormalnij@gmail.com>. All rights reserved.
+-- Licensed under the MIT license. See LICENSE file in the project root for details.
+--
+
+---@type CoopPlayers
+local CoopPlayers = ModRequire "../logic/CoopPlayers.lua"
+---@type HeroContext
+local HeroContext = ModRequire "../logic/HeroContext.lua"
+---@type HookUtils
+local HookUtils = ModRequire "../utils/HookUtils.lua"
+---@type SimpleHook
+local SimpleHook = ModRequire "../utils/SimpleHook.lua"
+---@type CoopControl
+local CoopControl = ModRequire "../logic/CoopControl.lua"
+---@type GameStateEx
+local GameStateEx = ModRequire "../logic/GameStateEx.lua"
+
+---@class MenuHooks : SimpleHook
+local MenuHooks = SimpleHook.New()
+
+function MenuHooks.InitGameHooks()
+    MenuHooks.HookUiControl("OpenKeepsakeRackScreen")
+    MenuHooks.HookUiControl("OpenWeaponShopScreen")
+    MenuHooks.HookUiControl("OpenCosmeticsShopScreen")
+    MenuHooks.HookUiControl("ShowBoonInfoScreen")
+    MenuHooks.HookUiControl("OpenBountyBoardScreen")
+    MenuHooks.HookUiControl("OpenCodexScreen")
+    MenuHooks.HookUiControl("OpenElementalPromptScreen")
+    MenuHooks.HookUiControl("OpenFamiliarCostumeScreen")
+    MenuHooks.HookUiControl("OpenFamiliarShopScreen")
+    MenuHooks.HookUiControl("OpenGameStatsScreen")
+    MenuHooks.HookUiControl("OpenGhostAdminScreen")
+    MenuHooks.HookUiControl("OpenMailboxScreen")
+    MenuHooks.HookUiControl("OpenMarketScreen")
+    MenuHooks.HookUiControl("OpenMusicPlayerScreen")
+    MenuHooks.HookUiControl("OpenQuestLogScreen")
+    MenuHooks.HookUiControl("OpenInventoryScreen")
+    MenuHooks.HookUiControl("OpenRunHistoryScreen")
+    MenuHooks.HookUiControl("OpenSellTraitMenu")
+    MenuHooks.HookUiControl("OpenShrineScreen")
+    MenuHooks.HookUiControl("OpenSpellScreen")
+    MenuHooks.HookUiControl("ShowStoreScreen")
+    MenuHooks.HookUiControl("ShowSurfaceShopScreen")
+    MenuHooks.HookUiControl("OpenTalentScreen")
+    MenuHooks.HookUiControl("OpenMetaUpgradeCardScreen")
+    MenuHooks.HookUiControl("OpenTradeScreen")
+    MenuHooks.HookUiControl("OpenTraitTrayScreen")
+    MenuHooks.HookUiControl("OpenUpgradeChoiceMenu")
+    MenuHooks.HookUiControl("PlayTextLines")
+    MenuHooks.HookUiControl("OpenWeaponUpgradeScreen")
+end
+
+---@private
+---@param funName string
+function MenuHooks.HookUiControl(funName)
+    HookUtils.wrap(funName, function(originalFun, ...)
+        local playerId = CoopPlayers.GetCurrentPlayerId()
+        CoopControl.SwitchControlForMenu(playerId)
+
+        HookUtils.onPreFunctionOnce("UnfreezePlayerUnit", function()
+            CoopControl.ExitMenuControl()
+        end)
+
+        return originalFun(...)
+    end)
+end
+
+function MenuHooks.pre.OpenMetaUpgradeCardScreen()
+    GameStateEx.CopyTraitsToMetaUpgrades(CurrentRun.Hero)
+end
+
+function MenuHooks.wrap.OpenKeepsakeRackScreen(baseFun, ...)
+    local playerId = CoopPlayers.GetCurrentPlayerId()
+
+    if playerId == 1 then
+        baseFun(...)
+        return
+    end
+
+    local key = "LastAwardTraitCoopPlayer" .. playerId
+    local prevGift = GameState.LastAwardTrait
+    local currentGift = GameState[key]
+
+    GameState.LastAwardTrait = currentGift
+
+    baseFun(...)
+
+    GameState[key] = GameState.LastAwardTrait
+    GameState.LastAwardTrait = prevGift
+end
+
+function MenuHooks.wrap.OpenSellTraitMenu(base)
+    local playerId = CoopPlayers.GetPlayerByHero(HeroContext.GetCurrentHeroContext()) or 1
+
+    local currentRoom = CurrentRun.CurrentRoom
+    local backup
+    if playerId > 1 then
+        backup = currentRoom.SellOptions
+        currentRoom.SellOptions = currentRoom["SellOptions" .. playerId]
+    end
+
+    base()
+
+    if playerId > 1 then
+        currentRoom["SellOptions" .. playerId] = currentRoom.SellOptions
+        currentRoom.SellOptions = backup
+    end
+end
+
+function MenuHooks.wrap.DisplayTextLine(baseFun, screen, source, line, parentLine)
+    if line.Choices then
+        -- Only this solution works
+        SetConfigOption { Name = "AllowControlHotSwap", Value = true }
+
+        HookUtils.onPreFunctionOnce("UnfreezePlayerUnit", function(name)
+            if name == "PlayTextLines" then
+                SetConfigOption { Name = "AllowControlHotSwap", Value = false }
+            end
+        end)
+    end
+    baseFun(screen, source, line, parentLine)
+end
+
+function MenuHooks.pre.OnScreenOpened(screen)
+    DebugPrint { Text = "OnScreenOpened:  " .. tostring(screen.Name) }
+end
+
+return MenuHooks
